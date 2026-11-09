@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Семейный бюджет</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+  (function () {
+    var tg = window.Telegram && window.Telegram.WebApp;
+    var dark = tg && tg.initData ? tg.colorScheme === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.scheme = dark ? 'dark' : 'light';
+  })();
+</script>
+<style>
+  :root {
+    --fb-bg: #ffffff; --fb-secondary: #efeff4; --fb-text: #000000; --fb-hint: #8e8e93;
+    --fb-link: #2481cc; --fb-button: #2481cc; --fb-header: #6d6d72; --fb-sep: #c8c7cc;
+    --fb-red: #ff3b30; --green: #2fb24c;
+  }
+  :root[data-scheme="dark"] {
+    --fb-bg: #1c1c1e; --fb-secondary: #000000; --fb-text: #ffffff; --fb-hint: #8d8e93;
+    --fb-link: #3e88f7; --fb-button: #3e88f7; --fb-header: #8d8e93; --fb-sep: #3d3d40;
+    --fb-red: #ff453a; --green: #32d15a;
+  }
+  :root {
+    --bg: var(--tg-theme-secondary-bg-color, var(--fb-secondary));
+    --section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, var(--fb-bg)));
+    --text: var(--tg-theme-text-color, var(--fb-text));
+    --hint: var(--tg-theme-hint-color, var(--fb-hint));
+    --link: var(--tg-theme-link-color, var(--fb-link));
+    --button: var(--tg-theme-button-color, var(--fb-button));
+    --button-text: var(--tg-theme-button-text-color, #ffffff);
+    --section-header: var(--tg-theme-section-header-text-color, var(--fb-header));
+    --sep: var(--tg-theme-section-separator-color, var(--fb-sep));
+    --red: var(--tg-theme-destructive-text-color, var(--fb-red));
+    --bottom-bar: var(--tg-theme-bottom-bar-bg-color, var(--bg));
+    --tint: rgba(36, 129, 204, .12);
+    --pressed: rgba(127, 127, 127, .12);
+    --hint-soft: var(--hint);
+    --green-tint: rgba(47, 178, 76, .14);
+    --red-tint: rgba(255, 59, 48, .12);
+  }
+  @supports (color: color-mix(in srgb, red 50%, blue)) {
+    :root {
+      --tint: color-mix(in srgb, var(--button) 13%, transparent);
+      --hint-soft: color-mix(in srgb, var(--hint) 55%, transparent);
+      --green-tint: color-mix(in srgb, var(--green) 15%, transparent);
+      --red-tint: color-mix(in srgb, var(--red) 13%, transparent);
+    }
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Segoe UI", system-ui, sans-serif;
+    font-size: 16px; line-height: 1.3; -webkit-font-smoothing: antialiased;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    overscroll-behavior-y: none;
+  }
+  body.has-main { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
+  input, textarea { font: inherit; color: var(--text); }
+  input::placeholder, textarea::placeholder { color: var(--hint); opacity: 1; }
+  svg { display: block; }
+
+  .wrap { max-width: 560px; margin: 0 auto; padding: 8px 16px 16px; }
+
+  /* Месяц */
+  .monthbar { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 10px; }
+  .month-nav { display: flex; align-items: center; gap: 2px; }
+  .month-title { font-size: 17px; font-weight: 600; min-width: 132px; text-align: center; padding: 6px 4px; border-radius: 8px; }
+  .icon-btn { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--link); flex: none; }
+  .icon-btn:active, .month-title:active { background: var(--pressed); }
+  .icon-btn svg { width: 22px; height: 22px; }
+  .icon-btn.sm { width: 30px; height: 30px; color: var(--hint); }
+  .icon-btn.sm svg { width: 16px; height: 16px; }
+  .spin svg { animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Секции в стиле Telegram */
+  .section { background: var(--section); border-radius: 12px; overflow: hidden; margin-bottom: 8px; }
+  .section-header {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .02em; color: var(--section-header);
+    padding: 18px 16px 7px; display: flex; justify-content: space-between; gap: 8px;
+  }
+  .section-header span:nth-child(2) { text-transform: none; letter-spacing: 0; }
+  .section-footer { font-size: 13px; color: var(--hint); padding: 2px 16px 14px; line-height: 1.4; }
+  .section-footer.center { text-align: center; padding-top: 6px; }
+  .row { position: relative; display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 10px 16px; }
+  .row + .row::before { content: ""; position: absolute; top: 0; right: 0; left: var(--inset, 16px); border-top: .5px solid var(--sep); }
+  .tappable { cursor: pointer; }
+  .tappable:active { background: var(--pressed); }
+  .row-main { flex: 1; min-width: 0; }
+  .row-title { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-sub { font-size: 13px; color: var(--hint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-amount { font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .row-hint { font-size: 14px; color: var(--hint); white-space: nowrap; }
+  .muted { color: var(--hint); }
+  .danger { color: var(--red); justify-content: center; }
+  .link-row { color: var(--link); }
+
+  /* Сводка */
+  .hero { padding: 16px 16px 14px; }
+  .hero-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .hero-label { font-size: 15px; color: var(--hint); }
+  .chip { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+  .chip.ok { background: var(--green-tint); color: var(--green); }
+  .chip.bad { background: var(--red-tint); color: var(--red); }
+  .hero-value { font-size: 34px; font-weight: 700; letter-spacing: -.02em; margin: 4px 0 4px; font-variant-numeric: tabular-nums; }
+  .hero-sub { font-size: 14px; color: var(--hint); }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .progress { height: 6px; border-radius: 3px; background: var(--tint); overflow: hidden; margin: 14px 0 6px; }
+  .progress > i { display: block; height: 100%; background: var(--button); border-radius: 3px; transition: width .3s; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; position: relative; }
+  .stats::before { content: ""; position: absolute; top: 0; left: 16px; right: 16px; border-top: .5px solid var(--sep); }
+  .stat { padding: 12px 16px 14px; min-width: 0; }
+  .stat + .stat { border-left: .5px solid var(--sep); }
+  .stat-label { font-size: 13px; color: var(--hint); }
+  .stat-value { font-size: 18px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat-hint { font-size: 12px; color: var(--hint); margin-top: 2px; }
+
+  /* Быстрые действия */
+  .actions { display: grid; gap: 8px; margin: 0 0 4px; }
+  .action {
+    background: var(--section); border-radius: 12px; padding: 11px 4px 10px; color: var(--link);
+    display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 13px; font-weight: 500;
+  }
+  .action:active { background: var(--pressed); }
+  .action svg { width: 24px; height: 24px; }
+
+  /* Записи */
+  .item { --inset: 52px; }
+  .check {
+    position: relative; width: 24px; height: 24px; border-radius: 50%; flex: none;
+    border: 2px solid var(--hint-soft); display: grid; place-items: center; color: var(--button-text);
+    transition: background .15s, border-color .15s;
+  }
+  .check::after { content: ""; position: absolute; inset: -12px; }
+  .check svg { width: 14px; height: 14px; opacity: 0; }
+  .check.on { background: var(--button); border-color: var(--button); }
+  .check.on svg { opacity: 1; }
+  .item.done .row-title { color: var(--hint); text-decoration: line-through; text-decoration-color: var(--hint-soft); }
+  .item.done .row-amount { color: var(--hint); }
+  .amount-income { color: var(--green); }
+
+  /* Формы */
+  .back-link { display: inline-flex; align-items: center; gap: 2px; color: var(--link); font-size: 17px; padding: 6px 4px 6px 0; margin-bottom: 4px; }
+  .back-link svg { width: 22px; height: 22px; }
+  .screen-title { font-size: 22px; font-weight: 700; margin: 4px 4px 12px; }
+  .segmented { display: flex; background: var(--pressed); border-radius: 9px; padding: 2px; margin-bottom: 12px; }
+  .segmented button { flex: 1; padding: 7px 0; border-radius: 7px; font-size: 15px; font-weight: 500; }
+  .segmented button.on { background: var(--section); box-shadow: 0 1px 3px rgba(0, 0, 0, .14); }
+  .input-row input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 17px; padding: 2px 0; }
+  .suffix { color: var(--hint); font-size: 17px; }
+  .row-label { flex: 1; font-size: 17px; }
+  .date-input {
+    flex: none; border: 0; outline: 0; background: var(--pressed); color: var(--link); font-size: 16px;
+    padding: 6px 10px; border-radius: 8px; min-height: 34px; -webkit-appearance: none; appearance: none;
+  }
+  .date-input::-webkit-date-and-time-value { text-align: right; }
+  .overdue { color: var(--red); }
+  .name-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; }
+  .textarea {
+    display: block; width: 100%; min-height: 132px; border: 0; outline: 0; background: transparent; resize: none;
+    padding: 12px 16px; font-size: 17px; line-height: 1.4;
+  }
+  .pick .tick { color: var(--link); opacity: 0; }
+  .pick .tick svg { width: 20px; height: 20px; }
+  .pick.sel .tick { opacity: 1; }
+  .switch { position: relative; width: 51px; height: 31px; border-radius: 16px; background: var(--pressed); flex: none; transition: background .2s; }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 4px rgba(0, 0, 0, .2); transition: transform .2s;
+  }
+  .switch.on { background: var(--green); }
+  .switch.on::after { transform: translateX(20px); }
+  .badge { font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 6px; flex: none; min-width: 64px; text-align: center; background: var(--red-tint); color: var(--red); }
+  .badge.income { background: var(--green-tint); color: var(--green); }
+  .link-btn { color: var(--link); font-weight: 500; font-size: 16px; padding: 4px 0; }
+
+  .banner { background: var(--tint); color: var(--link); font-size: 13px; line-height: 1.4; border-radius: 10px; padding: 9px 12px; margin-bottom: 8px; }
+  .center-box { text-align: center; padding: 64px 24px; color: var(--hint); }
+  .center-box b { display: block; color: var(--text); font-size: 17px; margin-bottom: 6px; }
+  .center-box .err { word-break: break-word; }
+  .loader { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--tint); border-top-color: var(--button); margin: 0 auto 14px; animation: spin .8s linear infinite; }
+  .btn-inline { margin-top: 18px; background: var(--button); color: var(--button-text); padding: 11px 22px; border-radius: 10px; font-weight: 600; }
+
+  /* Своя «главная кнопка», когда открыто не в Telegram */
+  .fb-main { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); background: var(--bottom-bar); z-index: 10; }
+  .fb-main button { display: block; width: 100%; max-width: 528px; margin: 0 auto; height: 50px; border-radius: 12px; background: var(--button); color: var(--button-text); font-size: 16px; font-weight: 600; }
+  .fb-main button:active { opacity: .85; }
+  .fb-main[hidden] { display: none; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
+    background: rgba(28, 28, 30, .92); color: #fff; font-size: 14px; padding: 10px 16px; border-radius: 10px;
+    max-width: calc(100% - 32px); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 20; text-align: center;
+  }
+  body.has-main .toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="fb-main" id="fbMain" hidden><button id="fbMainBtn" type="button"></button></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+'use strict';
+
+/* ============================================================
+   НАСТРОЙКА: вставьте адрес веб-приложения Google Apps Script
+   (заканчивается на /exec). Пока пусто — работает демо-режим.
+   ============================================================ */
+const CONFIG = {
+  API_URL: '',
+  CURRENCY: '₽',
+};
+
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+const IN_TG = !!(tg && tg.initData);
+const DEMO = !CONFIG.API_URL || !IN_TG;
+const ver = v => !!(tg && tg.isVersionAtLeast && tg.isVersionAtLeast(v));
+
+/* ---------- Утилиты ---------- */
+const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const MONTHS_PREP = ['январе', 'феврале', 'марте', 'апреле', 'мае', 'июне', 'июле', 'августе', 'сентябре', 'октябре', 'ноябре', 'декабре'];
+const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nf = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+const money = n => nf.format(Math.round((Number(n) || 0) * 100) / 100) + ' ' + CONFIG.CURRENCY;
+const signed = (n, plus) => (n < 0 ? '−' : (plus && n > 0 ? '+' : '')) + money(Math.abs(n));
+const monthKey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+const shiftMonth = (k, n) => { const [y, m] = k.split('-').map(Number); return monthKey(new Date(y, m - 1 + n, 1)); };
+const mIdx = k => Number(k.split('-')[1]) - 1;
+const monthTitle = k => MONTHS[mIdx(k)] + ' ' + k.split('-')[0];
+const toDate = iso => { const d = iso ? new Date(iso) : null; return d && !isNaN(d) ? d : null; };
+const shortDate = iso => { const d = toDate(iso); return d ? d.getDate() + ' ' + MONTHS_SHORT[d.getMonth()] : ''; };
+const longDate = iso => {
+  const d = toDate(iso); if (!d) return '';
+  return d.getDate() + ' ' + MONTHS_GEN[d.getMonth()] + ' в ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+};
+const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const pad2 = n => String(n).padStart(2, '0');
+const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+const daysInMonth = k => { const [y, m] = k.split('-').map(Number); return new Date(y, m, 0).getDate(); };
+const defaultDate = k => k === monthKey(new Date()) ? todayStr() : k + '-01';
+const dayLabel = ds => { if (!/^\d{4}-\d{2}-\d{2}$/.test(ds || '')) return ''; return Number(ds.slice(8)) + ' ' + MONTHS_SHORT[Number(ds.slice(5, 7)) - 1]; };
+const recDate = r => r.date || (r.createdAt ? String(r.createdAt).slice(0, 10) : '');
+const sum = a => a.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+const isDone = r => r.status === 'done';
+const plural = (n, f) => { const a = Math.abs(n) % 100, b = a % 10; return f[a > 10 && a < 20 ? 2 : b === 1 ? 0 : b > 1 && b < 5 ? 1 : 2]; };
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } },
+};
+
+const ICONS = {
+  left: '<path d="M15 18l-6-6 6-6"/>',
+  right: '<path d="M9 18l6-6-6-6"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  tick: '<path d="M20 6L9 17l-5-5"/>',
+  income: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  x: '<path d="M18 6L6 18M6 6l12 12"/>',
+};
+const I = (n, w) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w || 2}" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
+
+/* ---------- Логика записей (та же, что в Code.gs) ---------- */
+function makeRecord(item, byName, nowIso) {
+  const r = {
+    id: item.id || uid(), month: item.date ? item.date.slice(0, 7) : item.month, date: item.date || '',
+    type: item.type === 'income' ? 'income' : 'expense',
+    title: String(item.title || '').trim(), amount: Number(item.amount) || 0, status: 'planned',
+    author: item.author || byName, createdAt: nowIso, paidBy: '', paidAt: '',
+  };
+  if (item.status === 'done') { r.status = 'done'; r.paidBy = byName; r.paidAt = nowIso; }
+  return r;
+}
+function applyChanges(rec, ch, byName, nowIso) {
+  ['title', 'amount', 'type', 'author', 'month'].forEach(k => { if (ch[k] !== undefined) rec[k] = ch[k]; });
+  if (ch.date !== undefined) { rec.date = ch.date || ''; if (rec.date) rec.month = rec.date.slice(0, 7); }
+  if (ch.status !== undefined && ch.status !== rec.status) {
+    rec.status = ch.status;
+    rec.paidBy = ch.status === 'done' ? byName : '';
+    rec.paidAt = ch.status === 'done' ? nowIso : '';
+  }
+  return rec;
+}
+
+/* ---------- Разбор текста «садик 15000, бензин 8 тыс» ---------- */
+const INCOME_RE = /(зарплат|зп(?![а-яё])|аванс|преми|доход|кэшб|кешб|пособи|алимент|подработ|гонорар|возврат)/i;
+function parseBulk(text) {
+  const re = /([^\d\n;]*?)(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,](\d{1,2})(?!\d))?(?:\s*(тысяч[аи]?|тыс|млн|к|k|т)(?![а-яёa-z]))?\.?(?:\s*(?:рублей|рубля|рубль|руб|р|₽)(?![а-яёa-z]))?\.?/giu;
+  const out = [];
+  let m;
+  while ((m = re.exec(text))) {
+    let title = m[1]
+      .replace(/^[\s,.;:—–\-+]+/, '')
+      .replace(/^(и|а|ещё|еще|плюс|также|потом|дальше)\s+/i, '')
+      .replace(/[\s,:—–\-=]+$/, '')
+      .trim();
+    let amount = Number(m[2].replace(/[\s  ]/g, '') + (m[3] ? '.' + m[3] : ''));
+    const unit = (m[4] || '').toLowerCase();
+    if (unit === 'млн') amount *= 1e6; else if (unit) amount *= 1000;
+    amount = Math.round(amount * 100) / 100;
+    if (!amount) continue;
+    if (!title) title = 'Без названия';
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+    out.push({ title, amount, type: INCOME_RE.test(title) ? 'income' : 'expense' });
+  }
+  return out;
+}
+function parseAmount(s) {
+  s = String(s || '').trim().toLowerCase().replace(/[\s  ]/g, '').replace(',', '.');
+  let mult = 1;
+  if (/(к|k|т|тыс)$/.test(s)) { mult = 1000; s = s.replace(/(к|k|т|тыс)$/, ''); }
+  const n = Number(s.replace(/[₽р]/g, ''));
+  return isFinite(n) ? Math.round(n * mult * 100) / 100 : NaN;
+}
+
+/* ---------- Хранилище: демо (в браузере) или Google Таблица ---------- */
+function createDemoBackend() {
+  const KEY = 'fin_demo_v2';
+  const seed = () => {
+    const now = new Date(), m = monthKey(now);
+    const d = n => new Date(now.getFullYear(), now.getMonth(), Math.min(n, now.getDate()), 10, 0).toISOString();
+    const R = (type, title, amount, author, day, paidBy, paidDay, payDay) => ({
+      id: uid(), month: m, date: m + '-' + pad2(Math.min(payDay || day, daysInMonth(m))), type, title, amount, status: paidBy ? 'done' : 'planned', author, createdAt: d(day),
+      paidBy: paidBy || '', paidAt: paidBy ? d(paidDay) : '',
+    });
+    return {
+      users: [{ id: '1', name: 'Иван', tg: true }, { id: '2', name: 'Ольга', tg: true }],
+      records: [
+        R('income', 'Зарплата Ивана', 120000, 'Иван', 1, 'Иван', 5, 5),
+        R('income', 'Зарплата Ольги', 80000, 'Ольга', 1, '', 0, 20),
+        R('expense', 'Ипотека', 45000, 'Иван', 1, 'Иван', 5, 5),
+        R('expense', 'Садик', 15000, 'Ольга', 1, '', 0, 7),
+        R('expense', 'Коммуналка', 9000, 'Ольга', 1, 'Ольга', 6, 10),
+        R('expense', 'Продукты', 40000, 'Ольга', 1, '', 0, 30),
+        R('expense', 'Бензин', 8000, 'Иван', 2, '', 0, 15),
+        R('expense', 'Связь и интернет', 1500, 'Иван', 2, 'Иван', 3, 3),
+        R('expense', 'Кружок рисования', 6000, 'Ольга', 3, '', 0, 25),
+      ],
+    };
+  };
+  let db = store.get(KEY) || seed();
+  const save = () => store.set(KEY, db);
+  const clone = x => JSON.parse(JSON.stringify(x));
+  return {
+    async call(action, p = {}) {
+      await new Promise(r => setTimeout(r, 150));
+      const me = db.users[0], now = new Date().toISOString();
+      let res;
+      switch (action) {
+        case 'load': res = { me, users: db.users, records: db.records }; break;
+        case 'add': {
+          const recs = p.items.map(it => makeRecord(it, me.name, now));
+          recs.forEach(r => { if (!db.records.some(x => x.id === r.id)) db.records.push(r); });
+          res = { records: recs }; break;
+        }
+        case 'update': {
+          const r = db.records.find(x => x.id === p.id);
+          if (!r) throw new Error('Запись не найдена');
+          applyChanges(r, p.changes || {}, me.name, now); res = { record: r }; break;
+        }
+        case 'delete': db.records = db.records.filter(x => x.id !== p.id); res = { deleted: p.id }; break;
+        case 'addUser': db.users.push({ id: 'm-' + uid().slice(0, 8), name: String(p.name).trim(), tg: false }); res = { users: db.users }; break;
+        case 'renameUser': { const u = db.users.find(x => x.id === p.id); if (u) u.name = String(p.name).trim(); res = { users: db.users }; break; }
+        default: throw new Error('Неизвестное действие');
+      }
+      save();
+      return clone(res);
+    },
+    reset() { db = seed(); save(); },
+  };
+}
+
+const apiBackend = {
+  async call(action, payload) {
+    let resp, j;
+    try {
+      resp = await fetch(CONFIG.API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, payload, initData: tg.initData }),
+      });
+    } catch (e) { throw new Error('Нет связи с сервером. Проверьте интернет.'); }
+    try { j = await resp.json(); } catch (e) {
+      throw new Error('Сервер ответил не так, как ожидалось (код ' + resp.status + '). Проверьте адрес API_URL и что у веб-приложения стоит доступ «Все».');
+    }
+    if (!j.ok) throw new Error(j.error || 'Ошибка сервера');
+    return j.data;
+  },
+};
+
+const backend = DEMO ? createDemoBackend() : apiBackend;
+
+/* ---------- Состояние ---------- */
+const CACHE_KEY = 'fin_cache_v2';
+const S = {
+  me: null, users: [], records: [], month: monthKey(new Date()),
+  screen: 'main', loaded: false, error: null, pending: 0, syncing: false, form: null, bulk: null,
+};
+const findRec = id => S.records.find(r => r.id === id);
+function replaceRec(rec) {
+  const i = S.records.findIndex(r => r.id === rec.id);
+  if (i >= 0) S.records[i] = rec; else S.records.push(rec);
+}
+function persist() { if (!DEMO) store.set(CACHE_KEY, { me: S.me, users: S.users, records: S.records }); }
+
+async function loadAll(silent) {
+  S.syncing = true; const rb = $('#refreshBtn'); if (rb) rb.classList.add('spin');
+  try {
+    const d = await backend.call('load');
+    if (S.pending > 0) return;
+    S.me = d.me; S.users = d.users; S.records = d.records; S.loaded = true; S.error = null;
+    persist();
+    if (S.screen === 'main') render();
+    if (!silent) toast('Обновлено');
+  } catch (e) {
+    if (!S.loaded) { S.error = e.message; render(); } else if (!silent) toast(e.message);
+  } finally {
+    S.syncing = false; const b = $('#refreshBtn'); if (b) b.classList.remove('spin');
+  }
+}
+
+async function mutate(applyLocal, action, payload, onResult) {
+  const snapshot = JSON.stringify(S.records);
+  applyLocal();
+  if (S.screen === 'main') render();
+  S.pending++;
+  try {
+    const res = await backend.call(action, payload);
+    if (onResult) onResult(res);
+  } catch (e) {
+    S.records = JSON.parse(snapshot);
+    toast('Не сохранилось: ' + e.message);
+    hap('error');
+  } finally {
+    S.pending--;
+    persist();
+    if (S.screen === 'main') render();
+  }
+}
+
+/* ---------- Telegram: кнопки, вибро, подтверждения ---------- */
+let tgMainCb = null, tgBackCb = null;
+function setMain(text, cb) {
+  if (IN_TG) {
+    const mb = tg.MainButton;
+    if (tgMainCb) { mb.offClick(tgMainCb); tgMainCb = null; }
+    if (!text) { mb.hide(); return; }
+    tgMainCb = cb;
+    mb.setParams({ text, is_visible: true, is_active: true });
+    mb.onClick(cb);
+    return;
+  }
+  const bar = $('#fbMain'), btn = $('#fbMainBtn');
+  if (!text) { bar.hidden = true; document.body.classList.remove('has-main'); return; }
+  btn.textContent = text; btn.onclick = cb; bar.hidden = false; document.body.classList.add('has-main');
+}
+const tgBack = () => IN_TG && ver('6.1');
+function setBack(cb) {
+  if (!tgBack()) return;
+  if (tgBackCb) { tg.BackButton.offClick(tgBackCb); tgBackCb = null; }
+  if (!cb) { tg.BackButton.hide(); return; }
+  tgBackCb = cb; tg.BackButton.onClick(cb); tg.BackButton.show();
+}
+const backLink = () => tgBack() ? '' : `<button class="back-link" data-act="back">${I('left', 2.4)}Назад</button>`;
+function hap(t) {
+  try {
+    if (!IN_TG || !ver('6.1')) return;
+    const H = tg.HapticFeedback;
+    if (t === 'success' || t === 'error' || t === 'warning') H.notificationOccurred(t);
+    else if (t === 'select') H.selectionChanged();
+    else H.impactOccurred(t || 'light');
+  } catch (e) { }
+}
+function confirmBox(msg) {
+  return new Promise(res => {
+    if (IN_TG && ver('6.2')) tg.showConfirm(msg, ok => res(!!ok));
+    else res(window.confirm(msg));
+  });
+}
+let toastT;
+function toast(msg) {
+  const el = $('#toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+/* ---------- Навигация и отрисовка ---------- */
+function go(screen) { S.screen = screen; render(); window.scrollTo(0, 0); }
+
+function render() {
+  const app = $('#app');
+  if (!S.loaded) {
+    setMain(null); setBack(null);
+    app.innerHTML = S.error
+      ? `<div class="wrap"><div class="center-box"><b>Не удалось загрузить данные</b><div class="err">${esc(S.error)}</div><button class="btn-inline" data-act="retry">Повторить</button></div></div>`
+      : `<div class="wrap"><div class="center-box"><div class="loader"></div>Загружаю бюджет…</div></div>`;
+    return;
+  }
+  if (S.screen === 'form') renderForm();
+  else if (S.screen === 'bulk') renderBulk();
+  else if (S.screen === 'settings') renderSettings();
+  else renderMain();
+}
+
+function demoBanner() {
+  if (!DEMO) return '';
+  const text = CONFIG.API_URL
+    ? 'Откройте приложение через бота в Telegram, чтобы работать с общими данными. Сейчас — демо-режим.'
+    : 'Демо-режим: данные хранятся только в этом браузере. Чтобы вести бюджет вдвоём, подключите Google Таблицу по инструкции.';
+  return `<div class="banner">${text}</div>`;
+}
+
+function sortRecs(list) {
+  return list.slice().sort((a, b) => {
+    if (isDone(a) !== isDone(b)) return isDone(a) ? 1 : -1;
+    return recDate(a).localeCompare(recDate(b)) || String(a.createdAt).localeCompare(String(b.createdAt));
+  });
+}
+
+function rowHtml(r) {
+  const done = isDone(r), inc = r.type === 'income';
+  const ds = recDate(r), overdue = !done && !inc && ds && ds < todayStr();
+  const dateHtml = `<span class="${overdue ? 'overdue' : ''}">${dayLabel(ds)}${overdue ? ', просрочено' : ''}</span>`;
+  const sub = done
+    ? `${dateHtml} · ${inc ? 'получено' : 'оплачено'}, ${esc(r.paidBy || r.author)}`
+    : `${dateHtml} · ${esc(r.author)}`;
+  return `<div class="row item tappable ${done ? 'done' : ''}" data-act="open" data-id="${esc(r.id)}">
+    <button class="check ${done ? 'on' : ''}" data-act="toggle" data-id="${esc(r.id)}" aria-label="${done ? 'Отменить отметку' : (inc ? 'Отметить полученным' : 'Отметить оплаченным')}">${I('tick', 3.2)}</button>
+    <div class="row-main"><div class="row-title">${esc(r.title)}</div><div class="row-sub">${sub}</div></div>
+    <div class="row-amount ${inc && !done ? 'amount-income' : ''}">${inc ? '+' : ''}${money(r.amount)}</div>
+  </div>`;
+}
+
+function renderMain() {
+  const k = S.month, i = mIdx(k), prep = MONTHS_PREP[i];
+  const recs = S.records.filter(r => r.month === k);
+  const exp = sortRecs(recs.filter(r => r.type === 'expense'));
+  const inc = sortRecs(recs.filter(r => r.type === 'income'));
+  const expPlan = sum(exp), expDone = sum(exp.filter(isDone));
+  const incPlan = sum(inc), incDone = sum(inc.filter(isDone));
+  const free = incPlan - expPlan, left = expPlan - expDone, onHand = incDone - expDone;
+  const leftCount = exp.filter(r => !isDone(r)).length;
+  const pct = expPlan ? Math.min(100, Math.round(expDone / expPlan * 100)) : 0;
+  const prevK = shiftMonth(k, -1);
+  const prevCount = S.records.filter(r => r.month === prevK).length;
+
+  let hero;
+  if (!recs.length) {
+    hero = `<div class="hero"><div class="hero-label">${MONTHS[i]}: пока ничего не запланировано</div>
+      <div class="hero-value">${money(0)}</div>
+      <div class="hero-sub">Добавьте доходы и расходы на месяц — приложение посчитает, хватает ли денег.</div></div>`;
+  } else {
+    const label = free > 0 ? `Останется в ${prep}` : free < 0 ? `Не хватает в ${prep}` : `Всё впритык в ${prep}`;
+    const chip = free > 0 ? '<span class="chip ok">Хватает</span>' : free < 0 ? '<span class="chip bad">Не хватает</span>' : '';
+    const sub = incPlan === 0 ? 'Доходы ещё не внесены — добавьте зарплату' : `Доходы ${money(incPlan)} − расходы ${money(expPlan)}`;
+    hero = `<div class="hero">
+        <div class="hero-top"><div class="hero-label">${label}</div>${chip}</div>
+        <div class="hero-value ${free > 0 ? 'pos' : free < 0 ? 'neg' : ''}">${money(Math.abs(free))}</div>
+        <div class="hero-sub">${sub}</div>
+        ${expPlan ? `<div class="progress"><i style="width:${pct}%"></i></div><div class="hero-sub">Оплачено ${money(expDone)} из ${money(expPlan)}</div>` : ''}
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="stat-label">Осталось оплатить</div><div class="stat-value">${money(left)}</div>
+          <div class="stat-hint">${leftCount} ${plural(leftCount, ['платёж', 'платежа', 'платежей'])}</div></div>
+        <div class="stat"><div class="stat-label">На руках сейчас</div><div class="stat-value ${onHand < 0 ? 'neg' : ''}">${signed(onHand)}</div>
+          <div class="stat-hint">получено − оплачено</div></div>
+      </div>`;
+  }
+
+  const tiles = [
+    `<button class="action" data-act="add-income">${I('income')}Доход</button>`,
+    `<button class="action" data-act="bulk">${I('mic')}Списком</button>`,
+  ];
+  if (prevCount) tiles.push(`<button class="action" data-act="copy-prev">${I('copy')}Из ${MONTHS_GEN[mIdx(prevK)]}</button>`);
+
+  let lists = '';
+  if (recs.length) {
+    lists += `<div class="section-header"><span>Расходы · ${exp.length}</span><span>${money(expPlan)}</span></div>
+      <div class="section">${exp.length ? exp.map(rowHtml).join('') : `<div class="row tappable link-row" data-act="add-expense">Добавить первый расход</div>`}</div>`;
+    lists += `<div class="section-header"><span>Доходы · ${inc.length}</span><span>${inc.length ? `получено ${money(incDone)} из ${money(incPlan)}` : ''}</span></div>
+      <div class="section">${inc.length ? inc.map(rowHtml).join('') : `<div class="row tappable link-row" data-act="add-income">Добавить доход</div>`}</div>`;
+    lists += `<div class="section-footer center">Круг слева — отметить оплату. Нажмите на строку, чтобы изменить запись.</div>`;
+  }
+
+  $('#app').innerHTML = `<div class="wrap">
+    ${demoBanner()}
+    <div class="monthbar">
+      <button class="icon-btn ${S.syncing ? 'spin' : ''}" id="refreshBtn" data-act="refresh" aria-label="Обновить">${I('refresh')}</button>
+      <div class="month-nav">
+        <button class="icon-btn" data-act="prev" aria-label="Предыдущий месяц">${I('left', 2.4)}</button>
+        <button class="month-title" data-act="today">${monthTitle(k)}</button>
+        <button class="icon-btn" data-act="next" aria-label="Следующий месяц">${I('right', 2.4)}</button>
+      </div>
+      <button class="icon-btn" data-act="settings" aria-label="Участники">${I('users')}</button>
+    </div>
+    <div class="section">${hero}</div>
+    <div class="actions" style="grid-template-columns:repeat(${tiles.length},1fr)">${tiles.join('')}</div>
+    ${lists}
+  </div>`;
+  setBack(null);
+  setMain('Добавить расход', () => openForm(null, 'expense'));
+}
+
+/* ----- Форма одной записи ----- */
+function pickRows(sel) {
+  const names = S.users.map(u => u.name);
+  if (sel && !names.includes(sel)) names.unshift(sel);
+  return names.map(n => `<div class="row tappable pick ${n === sel ? 'sel' : ''}" data-act="pick" data-v="${esc(n)}">
+      <div class="row-main"><div class="row-title">${esc(n)}${S.me && n === S.me.name ? ' <span class="muted">· вы</span>' : ''}</div></div>
+      <span class="tick">${I('tick', 2.6)}</span></div>`).join('');
+}
+
+function openForm(rec, type) {
+  S.form = rec
+    ? { mode: 'edit', id: rec.id, type: rec.type, title: rec.title, amount: String(rec.amount), author: rec.author, status: rec.status, date: recDate(rec) }
+    : { mode: 'add', type: type || 'expense', title: '', amount: '', author: S.me.name, status: 'planned', date: defaultDate(S.month) };
+  go('form');
+  if (!rec) setTimeout(() => { const el = $('#fTitle'); if (el) el.focus(); }, 80);
+}
+
+function renderForm() {
+  const f = S.form, isInc = f.type === 'income', rec = f.mode === 'edit' ? findRec(f.id) : null;
+  const seg = (v, label) => `<button class="${f.type === v ? 'on' : ''}" data-act="ftype" data-v="${v}">${label}</button>`;
+  let info = '';
+  if (rec) {
+    info = `Внесено: ${esc(rec.author)}, ${longDate(rec.createdAt)}`;
+    if (isDone(rec)) info += `<br>${rec.type === 'income' ? 'Получено' : 'Оплачено'}: ${esc(rec.paidBy)}, ${longDate(rec.paidAt)}`;
+  }
+  $('#app').innerHTML = `<div class="wrap">
+    ${backLink()}
+    <div class="screen-title">${f.mode === 'add' ? 'Новая запись' : 'Запись'} · ${MONTHS[mIdx(S.month)].toLowerCase()}</div>
+    <div class="segmented" id="fSeg">${seg('expense', 'Расход')}${seg('income', 'Доход')}</div>
+    <div class="section">
+      <div class="row input-row"><input id="fTitle" placeholder="Название, например «Садик»" value="${esc(f.title)}" maxlength="120" autocomplete="off" enterkeyhint="next"></div>
+      <div class="row input-row"><input id="fAmount" placeholder="Сумма" inputmode="decimal" value="${esc(f.amount)}" autocomplete="off" enterkeyhint="done"><span class="suffix">${CONFIG.CURRENCY}</span></div>
+      <label class="row input-row"><span class="row-label">Дата</span><input id="fDate" class="date-input" type="date" value="${esc(f.date)}"></label>
+    </div>
+    <div class="section-header"><span>${f.mode === 'add' ? 'Кто вносит' : 'Кто внёс'}</span></div>
+    <div class="section">${pickRows(f.author)}</div>
+    <div class="section" style="margin-top:16px">
+      <div class="row tappable" data-act="fstatus">
+        <div class="row-main"><div class="row-title" id="fStatusLabel">${isInc ? 'Уже получено' : 'Уже оплачено'}</div></div>
+        <span class="switch ${f.status === 'done' ? 'on' : ''}" id="fSwitch"></span>
+      </div>
+    </div>
+    ${rec ? `<div class="section-footer">${info}</div>
+      <div class="section" style="margin-top:16px"><div class="row tappable danger" data-act="fdelete">Удалить запись</div></div>` : ''}
+  </div>`;
+  setBack(() => go('main'));
+  setMain(f.mode === 'add' ? 'Добавить' : 'Сохранить', saveForm);
+}
+
+function saveForm() {
+  const f = S.form;
+  const title = f.title.trim(), amount = parseAmount(f.amount);
+  if (!title) { toast('Введите название'); hap('error'); const el = $('#fTitle'); if (el) el.focus(); return; }
+  if (!(amount > 0)) { toast('Введите сумму больше нуля'); hap('error'); const el = $('#fAmount'); if (el) el.focus(); return; }
+  const now = new Date().toISOString();
+  if (document.activeElement) document.activeElement.blur();
+  if (f.mode === 'add') {
+    const item = { id: uid(), month: S.month, date: f.date, type: f.type, title, amount, author: f.author, status: f.status };
+    const rec = makeRecord(item, S.me.name, now);
+    go('main');
+    mutate(() => S.records.push(rec), 'add', { items: [item] }, res => res.records.forEach(replaceRec));
+  } else {
+    const changes = { title, amount, type: f.type, author: f.author, status: f.status, date: f.date };
+    go('main');
+    mutate(() => { const r = findRec(f.id); if (r) applyChanges(r, changes, S.me.name, now); },
+      'update', { id: f.id, changes }, res => replaceRec(res.record));
+  }
+  hap('success');
+  if (f.date && f.date.slice(0, 7) !== S.month) toast('Запись сохранена в ' + MONTHS_PREP[Number(f.date.slice(5, 7)) - 1] + ' ' + f.date.slice(0, 4));
+}
+
+async function deleteFromForm() {
+  const f = S.form;
+  if (!(await confirmBox(`Удалить «${f.title}»?`))) return;
+  go('main');
+  mutate(() => { S.records = S.records.filter(r => r.id !== f.id); }, 'delete', { id: f.id });
+  hap('warning');
+}
+
+function toggle(id) {
+  const r = findRec(id); if (!r) return;
+  const status = isDone(r) ? 'planned' : 'done';
+  const now = new Date().toISOString();
+  hap(status === 'done' ? 'success' : 'light');
+  mutate(() => applyChanges(r, { status }, S.me.name, now), 'update', { id, changes: { status } }, res => replaceRec(res.record));
+}
+
+async function copyPrev() {
+  const prevK = shiftMonth(S.month, -1);
+  const have = new Set(S.records.filter(r => r.month === S.month).map(r => r.type + '|' + r.title.trim().toLowerCase()));
+  const src = S.records.filter(r => r.month === prevK && !have.has(r.type + '|' + r.title.trim().toLowerCase()));
+  if (!src.length) { toast('Все записи из ' + MONTHS_GEN[mIdx(prevK)] + ' уже есть в этом месяце'); return; }
+  const n = src.length;
+  const ok = await confirmBox(`Перенести ${n} ${plural(n, ['запись', 'записи', 'записей'])} из ${MONTHS_GEN[mIdx(prevK)]} в ${MONTHS[mIdx(S.month)].toLowerCase()}? Они добавятся как запланированные, суммы потом можно поправить.`);
+  if (!ok) return;
+  const now = new Date().toISOString();
+  const shiftDate = r => { const ds = recDate(r); return ds ? S.month + '-' + pad2(Math.min(Number(ds.slice(8)), daysInMonth(S.month))) : defaultDate(S.month); };
+  const items = src.map(r => ({ id: uid(), month: S.month, date: shiftDate(r), type: r.type, title: r.title, amount: r.amount, author: S.me.name, status: 'planned' }));
+  const recs = items.map(it => makeRecord(it, S.me.name, now));
+  mutate(() => S.records.push(...recs), 'add', { items }, res => res.records.forEach(replaceRec));
+  hap('success');
+  toast(`Перенесено: ${n}`);
+}
+
+/* ----- Добавление списком (текст / диктовка) ----- */
+function openBulk() {
+  S.bulk = { text: '', author: S.me.name, over: {}, removed: {}, date: defaultDate(S.month) };
+  go('bulk');
+  setTimeout(() => { const el = $('#bulkText'); if (el) el.focus(); }, 80);
+}
+function bulkItems() {
+  return parseBulk(S.bulk.text)
+    .map(it => { const key = it.title + '|' + it.amount; return Object.assign({}, it, { key, type: S.bulk.over[key] || it.type }); })
+    .filter(it => !S.bulk.removed[it.key]);
+}
+function renderBulk() {
+  $('#app').innerHTML = `<div class="wrap">
+    ${backLink()}
+    <div class="screen-title">Списком · ${MONTHS[mIdx(S.month)].toLowerCase()}</div>
+    <div class="section"><textarea id="bulkText" class="textarea" placeholder="Садик 15000&#10;Ипотека 45 000&#10;Бензин 8 тыс&#10;Зарплата 120к">${esc(S.bulk.text)}</textarea></div>
+    <div class="section-footer">Пишите или диктуйте — нажмите микрофон на клавиатуре. Каждая запись — название и сумма, через запятую или с новой строки. Зарплата, аванс и премия попадут в доходы; тип можно поменять нажатием на метку.</div>
+    <div class="section" style="margin-top:4px">
+      <label class="row input-row"><span class="row-label">Дата для всех</span><input id="bDate" class="date-input" type="date" value="${esc(S.bulk.date)}"></label>
+    </div>
+    <div class="section-footer">Дату отдельной записи потом можно поменять, нажав на неё.</div>
+    <div class="section-header"><span>Кто вносит</span></div>
+    <div class="section">${pickRows(S.bulk.author)}</div>
+    <div id="bulkPreview"></div>
+  </div>`;
+  setBack(() => go('main'));
+  updateBulkPreview();
+}
+function updateBulkPreview() {
+  const box = $('#bulkPreview'); if (!box) return;
+  const items = bulkItems();
+  const e = sum(items.filter(i => i.type === 'expense')), inc = sum(items.filter(i => i.type === 'income'));
+  const totals = [e ? '−' + money(e) : '', inc ? '+' + money(inc) : ''].filter(Boolean).join(' · ');
+  box.innerHTML = items.length ? `<div class="section-header"><span>Распознано · ${items.length}</span><span>${totals}</span></div>
+    <div class="section">${items.map(it => `<div class="row" style="--inset:16px">
+      <button class="badge ${it.type}" data-act="btype" data-v="${esc(it.key)}">${it.type === 'income' ? 'Доход' : 'Расход'}</button>
+      <div class="row-main"><div class="row-title">${esc(it.title)}</div></div>
+      <div class="row-amount">${money(it.amount)}</div>
+      <button class="icon-btn sm" data-act="bremove" data-v="${esc(it.key)}" aria-label="Убрать">${I('x', 2.4)}</button>
+    </div>`).join('')}</div>` : '';
+  setMain(items.length ? `Добавить ${items.length} ${plural(items.length, ['запись', 'записи', 'записей'])}` : null, saveBulk);
+}
+function saveBulk() {
+  const items = bulkItems().map(it => ({ id: uid(), month: S.month, date: S.bulk.date, type: it.type, title: it.title, amount: it.amount, author: S.bulk.author, status: 'planned' }));
+  if (!items.length) return;
+  const now = new Date().toISOString();
+  const recs = items.map(it => makeRecord(it, S.me.name, now));
+  if (document.activeElement) document.activeElement.blur();
+  go('main');
+  mutate(() => S.records.push(...recs), 'add', { items }, res => res.records.forEach(replaceRec));
+  hap('success');
+  toast(`Добавлено: ${items.length}`);
+}
+
+/* ----- Участники ----- */
+function renderSettings() {
+  $('#app').innerHTML = `<div class="wrap">
+    ${backLink()}
+    <div class="screen-title">Участники</div>
+    <div class="section">
+      ${S.users.map(u => `<div class="row"><input class="name-input" data-id="${esc(u.id)}" value="${esc(u.name)}" maxlength="40" enterkeyhint="done">
+        <span class="row-hint">${S.me && u.id === S.me.id ? 'это вы' : (u.tg ? 'Telegram' : 'вручную')}</span></div>`).join('')}
+      <div class="row"><input class="name-input" id="newUser" placeholder="Имя нового участника" maxlength="40" enterkeyhint="done">
+        <button class="link-btn" data-act="add-user">Добавить</button></div>
+    </div>
+    <div class="section-footer">Чтобы жена тоже вела бюджет, отправьте ей ссылку на бота: она появится здесь автоматически, как только впервые откроет приложение. Из Telegram можно подключить двух человек. Чтобы переименовать, нажмите на имя. Старые записи сохранят прежнее имя.</div>
+    <div class="section-header"><span>Данные</span></div>
+    <div class="section">
+      <div class="row"><div class="row-main"><div class="row-title">Где хранятся</div></div><span class="row-hint">${DEMO ? 'в этом браузере (демо)' : 'Google Таблица'}</span></div>
+      ${DEMO ? '<div class="row tappable danger" data-act="demo-reset">Сбросить демо-данные</div>' : ''}
+    </div>
+  </div>`;
+  setBack(() => go('main'));
+  setMain(null);
+}
+async function renameUser(id, name) {
+  name = String(name || '').trim();
+  const u = S.users.find(x => x.id === id);
+  if (!u || !name || name === u.name) { renderSettings(); return; }
+  try {
+    const res = await backend.call('renameUser', { id, name });
+    S.users = res.users;
+    if (S.me && S.me.id === id) S.me.name = name;
+    persist(); toast('Имя сохранено'); hap('success');
+  } catch (e) { toast(e.message); }
+  if (S.screen === 'settings') renderSettings();
+}
+async function addUser() {
+  const el = $('#newUser'); const name = el ? el.value.trim() : '';
+  if (!name) { toast('Введите имя'); if (el) el.focus(); return; }
+  try {
+    const res = await backend.call('addUser', { name });
+    S.users = res.users; persist(); hap('success');
+  } catch (e) { toast(e.message); }
+  if (S.screen === 'settings') renderSettings();
+}
+
+/* ---------- События ---------- */
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const a = el.dataset.act, id = el.dataset.id, v = el.dataset.v;
+  switch (a) {
+    case 'prev': S.month = shiftMonth(S.month, -1); hap('select'); render(); break;
+    case 'next': S.month = shiftMonth(S.month, 1); hap('select'); render(); break;
+    case 'today': S.month = monthKey(new Date()); render(); break;
+    case 'refresh': if (!S.syncing) loadAll(false); break;
+    case 'settings': go('settings'); break;
+    case 'toggle': toggle(id); break;
+    case 'open': { const r = findRec(id); if (r) openForm(r); break; }
+    case 'add-expense': openForm(null, 'expense'); break;
+    case 'add-income': openForm(null, 'income'); break;
+    case 'bulk': openBulk(); break;
+    case 'copy-prev': copyPrev(); break;
+    case 'back': go('main'); break;
+    case 'ftype':
+      S.form.type = v; hap('select');
+      document.querySelectorAll('#fSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+      $('#fStatusLabel').textContent = v === 'income' ? 'Уже получено' : 'Уже оплачено';
+      break;
+    case 'fstatus':
+      S.form.status = S.form.status === 'done' ? 'planned' : 'done'; hap('select');
+      $('#fSwitch').classList.toggle('on', S.form.status === 'done');
+      break;
+    case 'pick':
+      if (S.screen === 'form') S.form.author = v; else if (S.screen === 'bulk') S.bulk.author = v;
+      document.querySelectorAll('[data-act="pick"]').forEach(x => x.classList.toggle('sel', x.dataset.v === v));
+      hap('select');
+      break;
+    case 'fdelete': deleteFromForm(); break;
+    case 'btype': {
+      const cur = bulkItems().find(it => it.key === v);
+      if (cur) S.bulk.over[v] = cur.type === 'income' ? 'expense' : 'income';
+      hap('select'); updateBulkPreview(); break;
+    }
+    case 'bremove': S.bulk.removed[v] = true; hap('light'); updateBulkPreview(); break;
+    case 'add-user': addUser(); break;
+    case 'demo-reset':
+      if (await confirmBox('Сбросить демо-данные к примеру?')) { backend.reset(); S.loaded = false; go('main'); loadAll(true); }
+      break;
+    case 'retry': S.error = null; render(); loadAll(true); break;
+  }
+});
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.id === 'fTitle') S.form.title = t.value;
+  else if (t.id === 'fAmount') S.form.amount = t.value;
+  else if (t.id === 'fDate') S.form.date = t.value;
+  else if (t.id === 'bDate') S.bulk.date = t.value;
+  else if (t.id === 'bulkText') {
+    S.bulk.text = t.value;
+    t.style.height = 'auto'; t.style.height = Math.max(132, t.scrollHeight) + 'px';
+    updateBulkPreview();
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.classList.contains('name-input') && t.dataset.id) renameUser(t.dataset.id, t.value);
+  else if (t.id === 'fDate') S.form.date = t.value;
+  else if (t.id === 'bDate') S.bulk.date = t.value;
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const t = e.target;
+  if (t.id === 'fTitle') { e.preventDefault(); $('#fAmount').focus(); }
+  else if (t.id === 'fAmount') { e.preventDefault(); t.blur(); }
+  else if (t.id === 'newUser') { e.preventDefault(); addUser(); }
+  else if (t.classList && t.classList.contains('name-input')) { e.preventDefault(); t.blur(); }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && S.loaded && !S.syncing) loadAll(true);
+});
+
+/* ---------- Запуск ---------- */
+function applyScheme() {
+  if (IN_TG) document.documentElement.dataset.scheme = tg.colorScheme === 'dark' ? 'dark' : 'light';
+}
+if (tg) {
+  try { tg.ready(); tg.expand(); } catch (e) { }
+  try {
+    if (ver('6.1')) { tg.setHeaderColor('secondary_bg_color'); tg.setBackgroundColor('secondary_bg_color'); }
+    if (ver('7.10')) tg.setBottomBarColor('secondary_bg_color');
+    if (ver('7.7')) tg.disableVerticalSwipes();
+  } catch (e) { }
+  if (tg.onEvent) tg.onEvent('themeChanged', applyScheme);
+}
+applyScheme();
+const cached = !DEMO && store.get(CACHE_KEY);
+if (cached && cached.me) { S.me = cached.me; S.users = cached.users || []; S.records = cached.records || []; S.loaded = true; }
+render();
+loadAll(true);
+</script>
+</body>
+</html>
