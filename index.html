@@ -143,6 +143,17 @@
   .check svg { width: 14px; height: 14px; opacity: 0; }
   .check.on { background: var(--button); border-color: var(--button); }
   .check.on svg { opacity: 1; }
+  .check.part {
+    border-color: var(--button);
+    background: conic-gradient(var(--button) calc(var(--p, 0) * 1%), transparent 0);
+    box-shadow: inset 0 0 0 2px var(--section);
+  }
+  [hidden] { display: none !important; }
+  .row[hidden] + .row::before { display: none; }
+  .screen-sub { font-size: 14px; color: var(--hint); margin: -8px 4px 12px; }
+  .pay-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .pay-grid .stat-value { font-size: 17px; }
+  .pay-done { font-size: 14px; color: var(--green); font-weight: 600; }
   .item.done .row-title { color: var(--hint); text-decoration: line-through; text-decoration-color: var(--hint-soft); }
   .item.done .row-amount { color: var(--hint); }
   .amount-income { color: var(--green); }
@@ -276,25 +287,44 @@ const ICONS = {
 const I = (n, w) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w || 2}" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
 
 /* ---------- Логика записей (та же, что в Code.gs) ---------- */
+const round2 = n => Math.round(n * 100) / 100;
+const paidOf = r => Number(r.paid) || 0;
+const leftOf = r => Math.max(0, round2((Number(r.amount) || 0) - paidOf(r)));   // сколько ещё оплатить по плану
+const overOf = r => Math.max(0, round2(paidOf(r) - (Number(r.amount) || 0)));   // перерасход сверх плана
+const effOf = r => Math.max(Number(r.amount) || 0, paidOf(r));                  // план или факт, если вышло больше
+const sumBy = (a, f) => round2(a.reduce((s, r) => s + f(r), 0));
+
+/** Пересчитать оплату записи по её платежам (то же, что summarize_ в Code.gs). */
+function summarize(rec) {
+  const pays = (rec.payments || []).slice().sort((a, b) => (a.date + a.at).localeCompare(b.date + b.at));
+  rec.payments = pays;
+  rec.paid = round2(pays.reduce((s, p) => s + (Number(p.amount) || 0), 0));
+  rec.status = rec.paid <= 0 ? 'planned' : (rec.paid + 0.005 >= rec.amount ? 'done' : 'partial');
+  const last = pays[pays.length - 1];
+  rec.paidBy = rec.status === 'done' ? last.by : '';
+  rec.paidAt = rec.status === 'done' ? (last.at || '') : '';
+  return rec;
+}
 function makeRecord(item, byName, nowIso) {
   const r = {
     id: item.id || uid(), month: item.date ? item.date.slice(0, 7) : item.month, date: item.date || '',
     type: item.type === 'income' ? 'income' : 'expense',
     title: String(item.title || '').trim(), amount: Number(item.amount) || 0, status: 'planned',
-    author: item.author || byName, createdAt: nowIso, paidBy: '', paidAt: '',
+    author: item.author || byName, createdAt: nowIso, paidBy: '', paidAt: '', payments: [],
   };
-  if (item.status === 'done') { r.status = 'done'; r.paidBy = byName; r.paidAt = nowIso; }
-  return r;
+  if (item.status === 'done') r.payments.push({ id: uid(), amount: r.amount, by: byName, date: r.date || todayStr(), at: nowIso });
+  return summarize(r);
 }
 function applyChanges(rec, ch, byName, nowIso) {
   ['title', 'amount', 'type', 'author', 'month'].forEach(k => { if (ch[k] !== undefined) rec[k] = ch[k]; });
   if (ch.date !== undefined) { rec.date = ch.date || ''; if (rec.date) rec.month = rec.date.slice(0, 7); }
-  if (ch.status !== undefined && ch.status !== rec.status) {
-    rec.status = ch.status;
-    rec.paidBy = ch.status === 'done' ? byName : '';
-    rec.paidAt = ch.status === 'done' ? nowIso : '';
+  rec.payments = rec.payments || [];
+  if (ch.status === 'planned') rec.payments = [];
+  if (ch.status === 'done') {
+    const left = leftOf(summarize(rec));
+    if (left > 0) rec.payments.push({ id: uid(), amount: left, by: byName, date: todayStr(), at: nowIso });
   }
-  return rec;
+  return summarize(rec);
 }
 
 /* ---------- Разбор текста «садик 15000, бензин 8 тыс» ---------- */
@@ -330,13 +360,15 @@ function parseAmount(s) {
 
 /* ---------- Хранилище: демо (в браузере) или Google Таблица ---------- */
 function createDemoBackend() {
-  const KEY = 'fin_demo_v2';
+  const KEY = 'fin_demo_v3';
   const seed = () => {
     const now = new Date(), m = monthKey(now);
     const d = n => new Date(now.getFullYear(), now.getMonth(), Math.min(n, now.getDate()), 10, 0).toISOString();
-    const R = (type, title, amount, author, day, paidBy, paidDay, payDay) => ({
-      id: uid(), month: m, date: m + '-' + pad2(Math.min(payDay || day, daysInMonth(m))), type, title, amount, status: paidBy ? 'done' : 'planned', author, createdAt: d(day),
-      paidBy: paidBy || '', paidAt: paidBy ? d(paidDay) : '',
+    const dd = n => m + '-' + pad2(Math.min(n, now.getDate()));
+    const R = (type, title, amount, author, day, paidBy, paidDay, payDay, parts) => summarize({
+      id: uid(), month: m, date: m + '-' + pad2(Math.min(payDay || day, daysInMonth(m))), type, title, amount, author, createdAt: d(day),
+      payments: parts ? parts.map(([sum, by, pd]) => ({ id: uid(), amount: sum, by, date: dd(pd), at: d(pd) }))
+        : paidBy ? [{ id: uid(), amount, by: paidBy, date: dd(paidDay), at: d(paidDay) }] : [],
     });
     return {
       users: [{ id: '1', name: 'Иван', tg: true }, { id: '2', name: 'Ольга', tg: true }],
@@ -347,7 +379,7 @@ function createDemoBackend() {
         R('expense', 'Садик', 15000, 'Ольга', 1, '', 0, 7),
         R('expense', 'Коммуналка', 9000, 'Ольга', 1, 'Ольга', 6, 10),
         R('expense', 'Продукты', 40000, 'Ольга', 1, '', 0, 30),
-        R('expense', 'Бензин', 8000, 'Иван', 2, '', 0, 15),
+        R('expense', 'Бензин', 8000, 'Иван', 2, '', 0, 30, [[3000, 'Иван', 3], [2500, 'Ольга', 8]]),
         R('expense', 'Связь и интернет', 1500, 'Иван', 2, 'Иван', 3, 3),
         R('expense', 'Кружок рисования', 6000, 'Ольга', 3, '', 0, 25),
       ],
@@ -374,6 +406,22 @@ function createDemoBackend() {
           applyChanges(r, p.changes || {}, me.name, now); res = { record: r }; break;
         }
         case 'delete': db.records = db.records.filter(x => x.id !== p.id); res = { deleted: p.id }; break;
+        case 'pay': {
+          const r = db.records.find(x => x.id === p.recordId);
+          if (!r) throw new Error('Запись не найдена');
+          if (!r.payments.some(x => x.id === p.id)) r.payments.push({ id: p.id || uid(), amount: round2(Number(p.amount)), by: p.by || me.name, date: p.date || todayStr(), at: now });
+          res = { record: summarize(r) }; break;
+        }
+        case 'deletePayment': {
+          const r = db.records.find(x => (x.payments || []).some(y => y.id === p.id));
+          if (!r) throw new Error('Платёж не найден');
+          r.payments = r.payments.filter(y => y.id !== p.id); res = { record: summarize(r) }; break;
+        }
+        case 'clearPayments': {
+          const r = db.records.find(x => x.id === p.recordId);
+          if (!r) throw new Error('Запись не найдена');
+          r.payments = []; res = { record: summarize(r) }; break;
+        }
         case 'addUser': db.users.push({ id: 'm-' + uid().slice(0, 8), name: String(p.name).trim(), tg: false }); res = { users: db.users }; break;
         case 'renameUser': { const u = db.users.find(x => x.id === p.id); if (u) u.name = String(p.name).trim(); res = { users: db.users }; break; }
         default: throw new Error('Неизвестное действие');
@@ -406,10 +454,10 @@ const apiBackend = {
 const backend = DEMO ? createDemoBackend() : apiBackend;
 
 /* ---------- Состояние ---------- */
-const CACHE_KEY = 'fin_cache_v2';
+const CACHE_KEY = 'fin_cache_v3';
 const S = {
   me: null, users: [], records: [], month: monthKey(new Date()),
-  screen: 'main', loaded: false, error: null, pending: 0, syncing: false, form: null, bulk: null,
+  screen: 'main', loaded: false, error: null, pending: 0, syncing: false, form: null, bulk: null, pay: null,
 };
 const findRec = id => S.records.find(r => r.id === id);
 function replaceRec(rec) {
@@ -437,7 +485,7 @@ async function loadAll(silent) {
 async function mutate(applyLocal, action, payload, onResult) {
   const snapshot = JSON.stringify(S.records);
   applyLocal();
-  if (S.screen === 'main') render();
+  rerenderAfterChange();
   S.pending++;
   try {
     const res = await backend.call(action, payload);
@@ -449,7 +497,14 @@ async function mutate(applyLocal, action, payload, onResult) {
   } finally {
     S.pending--;
     persist();
-    if (S.screen === 'main') render();
+    rerenderAfterChange();
+  }
+}
+function rerenderAfterChange() {
+  if (S.screen === 'main') render();
+  else if (S.screen === 'pay') {
+    const a = document.activeElement;
+    if (!(a && a.tagName === 'INPUT')) render();   // не сбивать ввод суммы
   }
 }
 
@@ -513,6 +568,7 @@ function render() {
   if (S.screen === 'form') renderForm();
   else if (S.screen === 'bulk') renderBulk();
   else if (S.screen === 'settings') renderSettings();
+  else if (S.screen === 'pay') renderPay();
   else renderMain();
 }
 
@@ -532,16 +588,25 @@ function sortRecs(list) {
 }
 
 function rowHtml(r) {
-  const done = isDone(r), inc = r.type === 'income';
+  const done = isDone(r), part = r.status === 'partial', inc = r.type === 'income';
   const ds = recDate(r), overdue = !done && !inc && ds && ds < todayStr();
   const dateHtml = `<span class="${overdue ? 'overdue' : ''}">${dayLabel(ds)}${overdue ? ', просрочено' : ''}</span>`;
-  const sub = done
-    ? `${dateHtml} · ${inc ? 'получено' : 'оплачено'}, ${esc(r.paidBy || r.author)}`
-    : `${dateHtml} · ${esc(r.author)}`;
+  let sub;
+  if (done) {
+    const over = overOf(r);
+    sub = `${dateHtml} · ${inc ? 'получено' : 'оплачено'}, ${esc(r.paidBy || r.author)}` +
+      (over > 0 && !inc ? ` · <span class="overdue">+${money(over)} сверх</span>` : '');
+  } else if (part) {
+    sub = `${dateHtml} · ${inc ? 'ждём ещё' : 'осталось'} ${money(leftOf(r))}`;
+  } else {
+    sub = `${dateHtml} · ${esc(r.author)}`;
+  }
+  const pct = part ? Math.max(4, Math.min(96, Math.round(paidOf(r) / r.amount * 100))) : 0;
+  const label = done ? 'Отменить оплату' : part ? 'Открыть оплату' : (inc ? 'Отметить полученным' : 'Оплатить полностью');
   return `<div class="row item tappable ${done ? 'done' : ''}" data-act="open" data-id="${esc(r.id)}">
-    <button class="check ${done ? 'on' : ''}" data-act="toggle" data-id="${esc(r.id)}" aria-label="${done ? 'Отменить отметку' : (inc ? 'Отметить полученным' : 'Отметить оплаченным')}">${I('tick', 3.2)}</button>
+    <button class="check ${done ? 'on' : ''} ${part ? 'part' : ''}" style="--p:${pct}" data-act="toggle" data-id="${esc(r.id)}" aria-label="${label}">${I('tick', 3.2)}</button>
     <div class="row-main"><div class="row-title">${esc(r.title)}</div><div class="row-sub">${sub}</div></div>
-    <div class="row-amount ${inc && !done ? 'amount-income' : ''}">${inc ? '+' : ''}${money(r.amount)}</div>
+    <div class="row-amount ${inc && !done ? 'amount-income' : ''}">${inc ? '+' : ''}${money(done ? effOf(r) : r.amount)}</div>
   </div>`;
 }
 
@@ -550,9 +615,9 @@ function renderMain() {
   const recs = S.records.filter(r => r.month === k);
   const exp = sortRecs(recs.filter(r => r.type === 'expense'));
   const inc = sortRecs(recs.filter(r => r.type === 'income'));
-  const expPlan = sum(exp), expDone = sum(exp.filter(isDone));
-  const incPlan = sum(inc), incDone = sum(inc.filter(isDone));
-  const free = incPlan - expPlan, left = expPlan - expDone, onHand = incDone - expDone;
+  const expPlan = sumBy(exp, effOf), expDone = sumBy(exp, paidOf);
+  const incPlan = sumBy(inc, effOf), incDone = sumBy(inc, paidOf);
+  const free = round2(incPlan - expPlan), left = sumBy(exp, leftOf), onHand = round2(incDone - expDone);
   const leftCount = exp.filter(r => !isDone(r)).length;
   const pct = expPlan ? Math.min(100, Math.round(expDone / expPlan * 100)) : 0;
   const prevK = shiftMonth(k, -1);
@@ -593,7 +658,7 @@ function renderMain() {
       <div class="section">${exp.length ? exp.map(rowHtml).join('') : `<div class="row tappable link-row" data-act="add-expense">Добавить первый расход</div>`}</div>`;
     lists += `<div class="section-header"><span>Доходы · ${inc.length}</span><span>${inc.length ? `получено ${money(incDone)} из ${money(incPlan)}` : ''}</span></div>
       <div class="section">${inc.length ? inc.map(rowHtml).join('') : `<div class="row tappable link-row" data-act="add-income">Добавить доход</div>`}</div>`;
-    lists += `<div class="section-footer center">Круг слева — отметить оплату. Нажмите на строку, чтобы изменить запись.</div>`;
+    lists += `<div class="section-footer center">Круг слева — оплачено полностью. Нажмите на строку, чтобы оплатить частями или изменить запись.</div>`;
   }
 
   $('#app').innerHTML = `<div class="wrap">
@@ -624,9 +689,9 @@ function pickRows(sel) {
       <span class="tick">${I('tick', 2.6)}</span></div>`).join('');
 }
 
-function openForm(rec, type) {
+function openForm(rec, type, from) {
   S.form = rec
-    ? { mode: 'edit', id: rec.id, type: rec.type, title: rec.title, amount: String(rec.amount), author: rec.author, status: rec.status, date: recDate(rec) }
+    ? { mode: 'edit', id: rec.id, type: rec.type, title: rec.title, amount: String(rec.amount), author: rec.author, status: rec.status, date: recDate(rec), from: from || 'main' }
     : { mode: 'add', type: type || 'expense', title: '', amount: '', author: S.me.name, status: 'planned', date: defaultDate(S.month) };
   go('form');
   if (!rec) setTimeout(() => { const el = $('#fTitle'); if (el) el.focus(); }, 80);
@@ -635,11 +700,13 @@ function openForm(rec, type) {
 function renderForm() {
   const f = S.form, isInc = f.type === 'income', rec = f.mode === 'edit' ? findRec(f.id) : null;
   const seg = (v, label) => `<button class="${f.type === v ? 'on' : ''}" data-act="ftype" data-v="${v}">${label}</button>`;
-  let info = '';
-  if (rec) {
-    info = `Внесено: ${esc(rec.author)}, ${longDate(rec.createdAt)}`;
-    if (isDone(rec)) info += `<br>${rec.type === 'income' ? 'Получено' : 'Оплачено'}: ${esc(rec.paidBy)}, ${longDate(rec.paidAt)}`;
-  }
+  const info = rec ? `Внесено: ${esc(rec.author)}, ${longDate(rec.createdAt)}` : '';
+  const payRow = rec
+    ? `<div class="row tappable" data-act="open-pay"><div class="row-main"><div class="row-title">${rec.type === 'income' ? 'Получено' : 'Оплачено'}</div></div>
+        <span class="row-hint">${money(paidOf(rec))} из ${money(rec.amount)} ›</span></div>`
+    : `<div class="row tappable" data-act="fstatus">
+        <div class="row-main"><div class="row-title" id="fStatusLabel">${isInc ? 'Уже получено' : 'Уже оплачено'}</div></div>
+        <span class="switch ${f.status === 'done' ? 'on' : ''}" id="fSwitch"></span></div>`;
   $('#app').innerHTML = `<div class="wrap">
     ${backLink()}
     <div class="screen-title">${f.mode === 'add' ? 'Новая запись' : 'Запись'} · ${MONTHS[mIdx(S.month)].toLowerCase()}</div>
@@ -651,16 +718,11 @@ function renderForm() {
     </div>
     <div class="section-header"><span>${f.mode === 'add' ? 'Кто вносит' : 'Кто внёс'}</span></div>
     <div class="section">${pickRows(f.author)}</div>
-    <div class="section" style="margin-top:16px">
-      <div class="row tappable" data-act="fstatus">
-        <div class="row-main"><div class="row-title" id="fStatusLabel">${isInc ? 'Уже получено' : 'Уже оплачено'}</div></div>
-        <span class="switch ${f.status === 'done' ? 'on' : ''}" id="fSwitch"></span>
-      </div>
-    </div>
+    <div class="section" style="margin-top:16px">${payRow}</div>
     ${rec ? `<div class="section-footer">${info}</div>
       <div class="section" style="margin-top:16px"><div class="row tappable danger" data-act="fdelete">Удалить запись</div></div>` : ''}
   </div>`;
-  setBack(() => go('main'));
+  setBack(goBack);
   setMain(f.mode === 'add' ? 'Добавить' : 'Сохранить', saveForm);
 }
 
@@ -677,8 +739,8 @@ function saveForm() {
     go('main');
     mutate(() => S.records.push(rec), 'add', { items: [item] }, res => res.records.forEach(replaceRec));
   } else {
-    const changes = { title, amount, type: f.type, author: f.author, status: f.status, date: f.date };
-    go('main');
+    const changes = { title, amount, type: f.type, author: f.author, date: f.date };
+    go(f.from === 'pay' ? 'pay' : 'main');
     mutate(() => { const r = findRec(f.id); if (r) applyChanges(r, changes, S.me.name, now); },
       'update', { id: f.id, changes }, res => replaceRec(res.record));
   }
@@ -694,12 +756,131 @@ async function deleteFromForm() {
   hap('warning');
 }
 
-function toggle(id) {
+function goBack() {
+  if (S.screen === 'form' && S.form && S.form.from === 'pay' && findRec(S.form.id)) go('pay');
+  else go('main');
+}
+
+/** Круг слева: не оплачено → оплатить полностью; частично → открыть оплату; оплачено → отменить. */
+async function toggle(id) {
   const r = findRec(id); if (!r) return;
-  const status = isDone(r) ? 'planned' : 'done';
-  const now = new Date().toISOString();
-  hap(status === 'done' ? 'success' : 'light');
-  mutate(() => applyChanges(r, { status }, S.me.name, now), 'update', { id, changes: { status } }, res => replaceRec(res.record));
+  if (r.status === 'partial') { openPay(r); return; }
+  if (isDone(r)) {
+    const n = (r.payments || []).length;
+    if (n > 1 && !(await confirmBox(`Отменить оплату «${r.title}»? Удалятся все ${n} ${plural(n, ['платёж', 'платежа', 'платежей'])} на ${money(paidOf(r))}.`))) return;
+    hap('light');
+    mutate(() => { r.payments = []; summarize(r); }, 'clearPayments', { recordId: id }, res => replaceRec(res.record));
+    return;
+  }
+  hap('success');
+  submitPayment(r, leftOf(r), S.me.name, todayStr());
+}
+
+function submitPayment(r, amount, by, date) {
+  const pay = { id: uid(), amount: round2(amount), by, date: date || todayStr(), at: new Date().toISOString() };
+  mutate(() => { r.payments = (r.payments || []).concat(pay); summarize(r); },
+    'pay', { recordId: r.id, id: pay.id, amount: pay.amount, by, date: pay.date }, res => replaceRec(res.record));
+}
+
+/* ----- Экран оплаты (полностью или частями) ----- */
+const payWords = inc => inc
+  ? { paid: 'Получено', verb: 'Получить', who: 'Кто получил', hist: 'Поступления', date: 'Дата', empty: 'Пока ничего не получено', full: 'Получено полностью', more: 'Ещё поступление' }
+  : { paid: 'Оплачено', verb: 'Оплатить', who: 'Кто платит', hist: 'Платежи', date: 'Дата платежа', empty: 'Платежей пока нет', full: 'Оплачено полностью', more: 'Ещё платёж сверх плана' };
+
+function openPay(rec) {
+  S.pay = { id: rec.id, mode: leftOf(rec) > 0 ? 'all' : 'part', amount: '', by: S.me.name, date: todayStr() };
+  go('pay');
+}
+
+function renderPay() {
+  const r = findRec(S.pay.id);
+  if (!r) { go('main'); return; }
+  const p = S.pay, inc = r.type === 'income', W = payWords(inc);
+  const left = leftOf(r), over = overOf(r);
+  if (left <= 0) p.mode = 'part';
+  const pct = r.amount ? Math.min(100, Math.round(paidOf(r) / r.amount * 100)) : 0;
+  const pays = (r.payments || []).slice().reverse();
+  const seg = (v, label) => `<button class="${p.mode === v ? 'on' : ''}" data-act="pmode" data-v="${v}">${label}</button>`;
+  $('#app').innerHTML = `<div class="wrap">
+    ${backLink()}
+    <div class="screen-title">${esc(r.title)}</div>
+    <div class="screen-sub">${inc ? 'Доход' : 'Расход'} · ${dayLabel(recDate(r))} · внесено: ${esc(r.author)}</div>
+    <div class="section"><div class="hero">
+      <div class="pay-grid">
+        <div><div class="stat-label">План</div><div class="stat-value">${money(r.amount)}</div></div>
+        <div><div class="stat-label">${W.paid}</div><div class="stat-value">${money(paidOf(r))}</div></div>
+        <div><div class="stat-label">${over > 0 ? 'Сверх плана' : 'Осталось'}</div><div class="stat-value ${over > 0 ? 'neg' : ''}">${money(over > 0 ? over : left)}</div></div>
+      </div>
+      <div class="progress"><i style="width:${pct}%"></i></div>
+      ${isDone(r) ? `<div class="pay-done">✓ ${W.full}</div>` : ''}
+    </div></div>
+    ${left > 0
+      ? `<div class="segmented" id="pSeg" style="margin-top:16px">${seg('all', 'Всё, что осталось')}${seg('part', 'Часть')}</div>`
+      : `<div class="section-header"><span>${W.more}</span></div>`}
+    <div class="section">
+      <div class="row" id="pAllRow" ${p.mode === 'all' ? '' : 'hidden'}><div class="row-main"><div class="row-title">Сумма</div></div><div class="row-amount">${money(left)}</div></div>
+      <div class="row input-row" id="pAmountRow" ${p.mode === 'part' ? '' : 'hidden'}>
+        <input id="pAmount" placeholder="Сколько ${inc ? 'получено' : 'оплачено'}" inputmode="decimal" value="${esc(p.amount)}" autocomplete="off" enterkeyhint="done">
+        <span class="suffix">${CONFIG.CURRENCY}</span></div>
+      <label class="row input-row"><span class="row-label">${W.date}</span><input id="pDate" class="date-input" type="date" value="${esc(p.date)}"></label>
+    </div>
+    <div class="section-footer" id="pHint"></div>
+    <div class="section-header"><span>${W.who}</span></div>
+    <div class="section">${pickRows(p.by)}</div>
+    <div class="section-header"><span>${W.hist} · ${pays.length}</span><span>${pays.length ? money(paidOf(r)) : ''}</span></div>
+    <div class="section">${pays.length ? pays.map(pm => `<div class="row">
+        <div class="row-main"><div class="row-title">${money(pm.amount)}</div><div class="row-sub">${dayLabel(pm.date)} · ${esc(pm.by)}</div></div>
+        <button class="icon-btn sm" data-act="pay-del" data-v="${esc(pm.id)}" aria-label="Удалить платёж">${I('x', 2.4)}</button>
+      </div>`).join('') : `<div class="row"><div class="row-main muted">${W.empty}</div></div>`}</div>
+    <div class="section" style="margin-top:16px"><div class="row tappable link-row" data-act="edit-rec">Изменить запись: название, сумму, дату</div></div>
+  </div>`;
+  setBack(() => go('main'));
+  updatePayUi();
+}
+
+function payAmountNow() {
+  const r = findRec(S.pay.id);
+  return S.pay.mode === 'all' ? leftOf(r) : parseAmount(S.pay.amount);
+}
+function updatePayUi() {
+  const r = findRec(S.pay.id); if (!r) return;
+  const inc = r.type === 'income', W = payWords(inc), a = payAmountNow(), left = leftOf(r);
+  const hint = $('#pHint');
+  if (hint) {
+    let t = '';
+    if (S.pay.mode === 'part' && a > 0) {
+      if (left > 0 && a < left) t = `После этого останется ${money(round2(left - a))}.`;
+      else if (left > 0 && a === left) t = `Закроет ${inc ? 'доход' : 'расход'} полностью.`;
+      else if (!inc) t = `Это больше плана на ${money(round2(a - left))} — запишем как перерасход, он учтётся в остатке месяца.`;
+      else t = `Это больше плана на ${money(round2(a - left))}.`;
+    } else if (S.pay.mode === 'part') {
+      t = 'Например, заправились на 2 500 — впишите 2 500. Остаток можно оплатить потом.';
+    }
+    hint.textContent = t;
+    hint.hidden = !t;
+  }
+  if (S.pay.mode === 'all') setMain(`${W.verb} ${money(left)}`, savePay);
+  else setMain(a > 0 ? `${inc ? 'Получено' : 'Внести'} ${money(a)}` : `${W.verb} частично`, savePay);
+}
+function savePay() {
+  const r = findRec(S.pay.id); if (!r) return;
+  const a = payAmountNow();
+  if (!(a > 0)) { toast('Введите сумму'); hap('error'); const el = $('#pAmount'); if (el) el.focus(); return; }
+  if (document.activeElement) document.activeElement.blur();
+  const inc = r.type === 'income', by = S.pay.by, date = S.pay.date;
+  go('main');
+  submitPayment(r, a, by, date);
+  hap('success');
+  toast(isDone(r) ? `${payWords(inc).full}` : `${inc ? 'Получено' : 'Оплачено'} ${money(a)}, осталось ${money(leftOf(r))}`);
+}
+async function deletePayment(payId) {
+  const r = findRec(S.pay.id); if (!r) return;
+  const pm = (r.payments || []).find(x => x.id === payId); if (!pm) return;
+  if (!(await confirmBox(`Удалить платёж ${money(pm.amount)} от ${dayLabel(pm.date)}?`))) return;
+  hap('warning');
+  if (document.activeElement) document.activeElement.blur();
+  mutate(() => { r.payments = r.payments.filter(x => x.id !== payId); summarize(r); },
+    'deletePayment', { id: payId }, res => replaceRec(res.record));
 }
 
 async function copyPrev() {
@@ -828,12 +1009,22 @@ document.addEventListener('click', async e => {
     case 'refresh': if (!S.syncing) loadAll(false); break;
     case 'settings': go('settings'); break;
     case 'toggle': toggle(id); break;
-    case 'open': { const r = findRec(id); if (r) openForm(r); break; }
+    case 'open': { const r = findRec(id); if (r) openPay(r); break; }
+    case 'open-pay': { const r = S.form && findRec(S.form.id); if (r) openPay(r); break; }
+    case 'edit-rec': { const r = findRec(S.pay.id); if (r) openForm(r, null, 'pay'); break; }
+    case 'pmode':
+      S.pay.mode = v; hap('select');
+      document.querySelectorAll('#pSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+      $('#pAllRow').hidden = v !== 'all'; $('#pAmountRow').hidden = v !== 'part';
+      if (v === 'part') $('#pAmount').focus();
+      updatePayUi();
+      break;
+    case 'pay-del': deletePayment(v); break;
     case 'add-expense': openForm(null, 'expense'); break;
     case 'add-income': openForm(null, 'income'); break;
     case 'bulk': openBulk(); break;
     case 'copy-prev': copyPrev(); break;
-    case 'back': go('main'); break;
+    case 'back': goBack(); break;
     case 'ftype':
       S.form.type = v; hap('select');
       document.querySelectorAll('#fSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
@@ -844,7 +1035,7 @@ document.addEventListener('click', async e => {
       $('#fSwitch').classList.toggle('on', S.form.status === 'done');
       break;
     case 'pick':
-      if (S.screen === 'form') S.form.author = v; else if (S.screen === 'bulk') S.bulk.author = v;
+      if (S.screen === 'form') S.form.author = v; else if (S.screen === 'bulk') S.bulk.author = v; else if (S.screen === 'pay') S.pay.by = v;
       document.querySelectorAll('[data-act="pick"]').forEach(x => x.classList.toggle('sel', x.dataset.v === v));
       hap('select');
       break;
@@ -868,6 +1059,8 @@ document.addEventListener('input', e => {
   else if (t.id === 'fAmount') S.form.amount = t.value;
   else if (t.id === 'fDate') S.form.date = t.value;
   else if (t.id === 'bDate') S.bulk.date = t.value;
+  else if (t.id === 'pAmount') { S.pay.amount = t.value; updatePayUi(); }
+  else if (t.id === 'pDate') S.pay.date = t.value;
   else if (t.id === 'bulkText') {
     S.bulk.text = t.value;
     t.style.height = 'auto'; t.style.height = Math.max(132, t.scrollHeight) + 'px';
@@ -879,12 +1072,13 @@ document.addEventListener('change', e => {
   if (t.classList.contains('name-input') && t.dataset.id) renameUser(t.dataset.id, t.value);
   else if (t.id === 'fDate') S.form.date = t.value;
   else if (t.id === 'bDate') S.bulk.date = t.value;
+  else if (t.id === 'pDate') S.pay.date = t.value;
 });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const t = e.target;
   if (t.id === 'fTitle') { e.preventDefault(); $('#fAmount').focus(); }
-  else if (t.id === 'fAmount') { e.preventDefault(); t.blur(); }
+  else if (t.id === 'fAmount' || t.id === 'pAmount') { e.preventDefault(); t.blur(); }
   else if (t.id === 'newUser') { e.preventDefault(); addUser(); }
   else if (t.classList && t.classList.contains('name-input')) { e.preventDefault(); t.blur(); }
 });
